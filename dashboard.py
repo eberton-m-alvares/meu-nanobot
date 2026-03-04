@@ -3,19 +3,18 @@ NANOBOT COMMAND CENTER v3.0
 Foco: capacidades operacionais avançadas do agente
 """
 
-import streamlit as st
-import docker
-import os
-import json
-import psutil
-import time
 import datetime
-import re
-import glob
+import json
+import os
 import queue
+import re
 import threading
+import time
 from dataclasses import dataclass, field
 
+import docker
+import psutil
+import streamlit as st
 import streamlit.components.v1 as components
 from ansi2html import Ansi2HTMLConverter
 
@@ -39,7 +38,7 @@ st.markdown("""
 *, *::before, *::after { box-sizing: border-box; }
 
 html, body, [data-testid="stAppViewContainer"], .stApp {
-    background: #060810 !important;
+    background: #05070a !important;
     color: #c9d1e0 !important;
     font-family: 'Syne', sans-serif !important;
 }
@@ -52,14 +51,14 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 ::-webkit-scrollbar-thumb:hover { background: #3b82f6; }
 
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #0b0d1a 0%, #080a14 100%) !important;
+    background: linear-gradient(180deg, #0b0d1a 0%, #05070a 100%) !important;
     border-right: 1px solid #1e2640 !important;
     padding-top: 0 !important;
 }
 [data-testid="stSidebar"] > div:first-child { padding-top: 0 !important; }
 
 .logo-zone {
-    background: linear-gradient(135deg, #0f1729 0%, #0a1020 100%);
+    background: linear-gradient(135deg, #0f1729 0%, #05070a 100%);
     border-bottom: 1px solid #1e2640;
     padding: 28px 24px 20px;
     margin-bottom: 8px;
@@ -71,7 +70,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     position: absolute;
     top: -40px; right: -40px;
     width: 120px; height: 120px;
-    background: radial-gradient(circle, #2563eb22 0%, transparent 70%);
+    background: radial-gradient(circle, #3b82f644 0%, transparent 70%);
     border-radius: 50%;
 }
 .logo-zone .bot-name {
@@ -97,13 +96,14 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 
 [data-testid="stRadio"] label {
     font-size: 0.82rem !important; letter-spacing: 0.05em !important;
-    color: #64748b !important; padding: 8px 12px !important;
+    color: #94a3b8 !important; padding: 8px 12px !important;
     border-radius: 8px !important; transition: all .2s !important;
+    font-family: 'Space Mono', monospace !important;
 }
 [data-testid="stRadio"] label:hover { color: #94a3b8 !important; background: #ffffff06 !important; }
 
 .glass-card {
-    background: linear-gradient(135deg, #0f1729cc 0%, #0a1020cc 100%);
+    background: linear-gradient(135deg, #0f1729cc 0%, #05070acc 100%);
     border: 1px solid #1e2640; border-radius: 14px;
     padding: 20px 22px;
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -133,9 +133,10 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 [data-testid="stChatInput"] {
     background: #0d1525 !important; border: 1px solid #1e2a40 !important;
     border-radius: 12px !important; color: #c9d1e0 !important;
+    font-family: 'Space Mono', monospace !important;
 }
 [data-testid="stChatInput"]:focus-within {
-    border-color: #2563eb !important; box-shadow: 0 0 0 3px #2563eb18 !important;
+    border-color: #3b82f6 !important; box-shadow: 0 0 0 3px #3b82f618 !important;
 }
 
 /* LOG BOX */
@@ -161,7 +162,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 
 /* METRIC CARD */
 .metric-card {
-    background: linear-gradient(135deg, #0f1729 0%, #0c1220 100%);
+    background: linear-gradient(135deg, #0f1729 0%, #05070a 100%);
     border: 1px solid #1e2640; border-radius: 12px;
     padding: 18px 20px; text-align: center; position: relative; overflow: hidden;
 }
@@ -206,7 +207,7 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
     padding: 12px 16px; margin-bottom: 8px; cursor: pointer;
     transition: border-color .2s;
 }
-.mem-card:hover { border-color: #2563eb44; }
+.mem-card:hover { border-color: #3b82f644; }
 .mem-card .mem-name {
     font-family: 'Space Mono', monospace; font-size: 0.78rem;
     color: #60a5fa; margin-bottom: 4px;
@@ -225,28 +226,28 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 
 /* INPUTS */
 textarea, input[type="text"], input[type="password"] {
-    background: #070b14 !important; border: 1px solid #1e2640 !important;
+    background: #05070a !important; border: 1px solid #1e2640 !important;
     border-radius: 10px !important; color: #94a3b8 !important;
     font-family: 'Space Mono', monospace !important; font-size: 0.8rem !important;
 }
-textarea:focus, input:focus { border-color: #2563eb !important; box-shadow: none !important; }
+textarea:focus, input:focus { border-color: #3b82f6 !important; box-shadow: none !important; }
 
 [data-testid="stSelectbox"] > div > div {
-    background: #070b14 !important; border: 1px solid #1e2640 !important;
+    background: #05070a !important; border: 1px solid #1e2640 !important;
     border-radius: 8px !important; color: #94a3b8 !important;
     font-family: 'Space Mono', monospace !important; font-size: 0.8rem !important;
 }
 
 /* BUTTONS */
 .stButton > button {
-    background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%) !important;
-    color: #e2e8f0 !important; border: none !important; border-radius: 8px !important;
+    background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%) !important;
+    color: #e2e8f0 !important; border: 1px solid #3b82f6 !important; border-radius: 8px !important;
     font-family: 'Space Mono', monospace !important; font-size: 0.75rem !important;
     letter-spacing: 0.08em !important; padding: 10px 20px !important; transition: all .2s !important;
 }
 .stButton > button:hover {
-    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%) !important;
-    transform: translateY(-1px) !important; box-shadow: 0 8px 24px #2563eb33 !important;
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%) !important;
+    transform: translateY(-1px) !important; box-shadow: 0 0 15px rgba(59, 130, 246, 0.4) !important;
 }
 
 /* DANGER BUTTON */
@@ -279,7 +280,7 @@ hr { border-color: #1e2640 !important; }
 }
 .login-glow {
     width: 100px; height: 100px;
-    background: radial-gradient(circle, #2563eb33 0%, transparent 70%);
+    background: radial-gradient(circle, #3b82f633 0%, transparent 70%);
     border-radius: 50%; margin: 0 auto 12px;
     display: flex; align-items: center; justify-content: center; font-size: 2.5rem;
 }
@@ -302,6 +303,32 @@ hr { border-color: #1e2640 !important; }
     background: #0a0f1e !important; border: 1px solid #1a2035 !important;
     border-radius: 10px !important;
 }
+
+/* WHATSAPP QR CARD */
+.qr-card {
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: 'Space Mono', monospace !important;
+    padding: 24px !important;
+    border-radius: 12px !important;
+    line-height: 1.05 !important;
+    display: inline-block;
+    border: 6px solid #3b82f6 !important;
+    margin: 15px 0;
+}
+
+/* GLASS LOGIN */
+.glass-login {
+    background: rgba(15, 23, 41, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid #1e2a40;
+    border-radius: 16px;
+    padding: 40px;
+    max-width: 420px;
+    margin: 40px auto;
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -310,22 +337,22 @@ hr { border-color: #1e2640 !important; }
 #  UTILS
 # ─────────────────────────────────────────────
 def color_log_line(line: str) -> str:
-    l = line.lower()
-    if any(k in l for k in ("error", "exception", "fail", "traceback", "critical")):
+    log_line_lower = line.lower()
+    if any(k in log_line_lower for k in ("error", "exception", "fail", "traceback", "critical")):
         return f'<span class="log-line-err">{line}</span>'
-    if any(k in l for k in ("warn", "warning")):
+    if any(k in log_line_lower for k in ("warn", "warning")):
         return f'<span class="log-line-warn">{line}</span>'
-    if any(k in l for k in ("success", "done", "complete", "✓", "ok", "finish")):
+    if any(k in log_line_lower for k in ("success", "done", "complete", "✓", "ok", "finish")):
         return f'<span class="log-line-ok">{line}</span>'
-    if any(k in l for k in ("info", "start", "run", "agent", "tool", "call", "fetch")):
+    if any(k in log_line_lower for k in ("info", "start", "run", "agent", "tool", "call", "fetch")):
         return f'<span class="log-line-info">{line}</span>'
     return line
 
 def render_log(raw: str, filter_kw: str = "") -> str:
     lines = raw.split("\n")
     if filter_kw:
-        lines = [l for l in lines if filter_kw.lower() in l.lower()]
-    return "<br>".join(color_log_line(l) for l in lines)
+        lines = [log_line for log_line in lines if filter_kw.lower() in log_line.lower()]
+    return "<br>".join(color_log_line(log_line) for log_line in lines)
 
 def prog_html(pct: float, cls: str) -> str:
     w = min(max(pct, 0), 100)
@@ -366,6 +393,26 @@ def exec_in_container(container, cmd: str, timeout: int = 30) -> tuple[int, str]
     except Exception as e:
         return 1, f"Erro: {e}"
 
+def ensure_whatsapp_enabled(container) -> bool:
+    """Garante que o WhatsApp está habilitado no config.json do container."""
+    if container is None:
+        return False
+    py_cmd = (
+        "import json, os; p='/root/.nanobot/config.json'; "
+        "d=json.load(open(p)) if os.path.exists(p) and open(p).read() else {}; "
+        "d.setdefault('channels', {}).setdefault('whatsapp', {})['enabled']=True; "
+        "json.dump(d, open(p, 'w'), indent=2)"
+    )
+    code, out = exec_in_container(container, f"python3 -c \"{py_cmd}\"")
+    return code == 0
+
+def clear_whatsapp_session(container) -> bool:
+    """Remove a pasta de autenticação do WhatsApp para resetar a conexão."""
+    if container is None:
+        return False
+    code, out = exec_in_container(container, "rm -rf /root/.nanobot/whatsapp-auth")
+    return code == 0
+
 def get_cron_jobs(container) -> list[dict]:
     """Lê crontab do container."""
     try:
@@ -404,6 +451,8 @@ class ManagedProcess:
     output_queue: queue.Queue = field(default_factory=queue.Queue)
     output_lines: list[str] = field(default_factory=list)
     reader_thread: threading.Thread | None = None
+    qr_code: str = ""
+    status_text: str = "stopped"
 
 
 def init_managed_state() -> None:
@@ -418,8 +467,11 @@ def _stream_exec_output(proc_key: str, stream, client: docker.DockerClient) -> N
     if not managed:
         return
     buf = ""
+    # Regex flexível para capturar blocos ASCII de QR code (permite espaços entre blocos)
+    qr_line_pattern = re.compile(r"^[\s\u2580-\u259F]{15,}$")
     try:
         managed.running = True
+        managed.status_text = "running"
         for chunk in stream:
             if chunk is None:
                 continue
@@ -427,11 +479,31 @@ def _stream_exec_output(proc_key: str, stream, client: docker.DockerClient) -> N
             buf += text
             while "\n" in buf:
                 line, buf = buf.split("\n", 1)
+
+                # Captura PID
                 if line.startswith("__NB_PID__:"):
                     pid_raw = line.split(":", 1)[1].strip()
                     if pid_raw.isdigit():
                         managed.pid = int(pid_raw)
                     continue
+
+                # Detecta QR Code
+                if qr_pattern.search(line):
+                    if not managed.qr_code:
+                        managed.qr_code = ""
+                    managed.qr_code += line + "\n"
+                    managed.status_text = "awaiting_scan"
+
+                # Detecta status pelas keywords
+                l_line = line.lower()
+                if "connected to whatsapp" in l_line or "bot online" in l_line:
+                    managed.status_text = "online"
+                    managed.qr_code = ""
+                elif "link device via qr code" in l_line or "starting bridge" in l_line:
+                    managed.status_text = "connecting"
+                elif "error" in l_line or "failed" in l_line:
+                    managed.status_text = "error"
+
                 managed.output_queue.put(line + "\n")
         if buf:
             managed.output_queue.put(buf)
@@ -538,18 +610,21 @@ def check_password() -> bool:
     if st.session_state.get("auth", False):
         return True
 
-    st.markdown("""
-    <div class="login-wrap">
-      <div class="login-glow">⬡</div>
-      <div class="login-title">NANO<span>BOT</span></div>
-      <div class="login-sub">Command Center · Secure Access</div>
-    </div>
-    """, unsafe_allow_html=True)
-
+    # Centraliza o login usando colunas do Streamlit
     _, col, _ = st.columns([1, 1.2, 1])
+
     with col:
+        st.markdown("""
+        <div class="glass-login">
+          <div class="login-glow">⬡</div>
+          <div class="login-title">NANO<span>BOT</span></div>
+          <div class="login-sub">Command Center · Secure Access</div>
+          <div style="height: 20px;"></div>
+        """, unsafe_allow_html=True)
+
         username = st.text_input("Username", placeholder="username", label_visibility="collapsed")
         password = st.text_input("Token", type="password", placeholder="access token", label_visibility="collapsed")
+
         if st.button("⬡  AUTHENTICATE", use_container_width=True):
             u_env = os.getenv("DASHBOARD_USER", "admin").strip()
             p_env = os.getenv("DASHBOARD_PASS", "admin123").strip()
@@ -560,6 +635,9 @@ def check_password() -> bool:
                 st.rerun()
             else:
                 st.error("⚠ Credenciais inválidas")
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
     return False
 
 if not check_password():
@@ -641,6 +719,7 @@ with st.sidebar:
         "Nav",
         [
             "⬡  Terminal",
+            "📱 WhatsApp",
             "⌘  Shell Direto",
             "◈  Identidade",
             "⏱  Cron / Agenda",
@@ -833,6 +912,88 @@ if "Terminal" in menu:
 
     if any(p.running for p in st.session_state.managed_processes.values()):
         time.sleep(1)
+        st.rerun()
+
+# ═══════════════════════════════════════════════════
+#  PAGE: WHATSAPP
+# ═══════════════════════════════════════════════════
+elif "WhatsApp" in menu:
+    st.markdown('<div class="sec-header">📱 Integração Nativa WhatsApp</div>', unsafe_allow_html=True)
+
+    if not container_online:
+        st.error("⚠ Container `nanobot` offline. Verifique o Docker.")
+    else:
+        # Garante configuração habilitada
+        if ensure_whatsapp_enabled(nanobot):
+            st.caption("✓ WhatsApp habilitado no config.json")
+
+        col_ctrl, col_qr = st.columns([0.4, 0.6], gap="large")
+
+        with col_ctrl:
+            st.markdown('<div class="sec-header">⚡ Controle de Conexão</div>', unsafe_allow_html=True)
+
+            # Status Visual
+            ws_proc = st.session_state.managed_processes.get("channels_login") or st.session_state.managed_processes.get("wa_gateway")
+            current_stat = ws_proc.status_text if ws_proc else "stopped"
+
+            stat_map = {
+                "stopped": ("🔴 Desconectado", "error"),
+                "running": ("🟡 Inicializando...", "running"),
+                "connecting": ("🟡 Conectando Bridge...", "running"),
+                "awaiting_scan": ("🔵 Aguardando Scan...", "running"),
+                "online": ("🟢 Bot Online", "complete"),
+                "error": ("🔴 Erro na Conexão", "error")
+            }
+            label, state = stat_map.get(current_stat, ("⚪ Desconhecido", "error"))
+
+            with st.status(label, state=state, expanded=True):
+                if current_stat == "awaiting_scan":
+                    st.write("Aponte o WhatsApp do celular para o QR Code ao lado.")
+                elif current_stat == "online":
+                    st.write("O bot está conectado e pronto para responder mensagens.")
+                elif current_stat == "stopped":
+                    st.write("Inicie o processo de login ou gateway.")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            if st.button("🔗 Iniciar Conexão (QR Code)", use_container_width=True):
+                start_managed_process("channels_login", "WhatsApp Login", "nanobot channels login", nanobot)
+                st.rerun()
+
+            if st.button("🚀 Iniciar Gateway Background", use_container_width=True):
+                start_managed_process("wa_gateway", "WhatsApp Gateway", "nanobot gateway", nanobot)
+                st.rerun()
+
+            st.markdown("<br><hr>", unsafe_allow_html=True)
+
+            if st.button("🛑 Parar Todos os Processos", use_container_width=True):
+                stop_managed_processes(nanobot)
+                st.rerun()
+
+            st.markdown('<div class="danger-btn">', unsafe_allow_html=True)
+            if st.button("🗑️ Limpar Sessão / Logout", use_container_width=True):
+                if clear_whatsapp_session(nanobot):
+                    st.success("Sessão limpa com sucesso.")
+                    stop_managed_processes(nanobot)
+                    st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with col_qr:
+            st.markdown('<div class="sec-header">📸 QR Code de Autenticação</div>', unsafe_allow_html=True)
+
+            proc = st.session_state.managed_processes.get("channels_login")
+            if proc and proc.qr_code:
+                st.markdown(f'<div class="qr-card"><pre style="margin:0; padding:0; line-height:1;">{proc.qr_code}</pre></div>', unsafe_allow_html=True)
+                if st.button("🔄 Forçar Atualização UI"):
+                    st.rerun()
+            elif proc and proc.running:
+                st.info("Aguardando geração do QR Code...")
+                st.spinner("Processando...")
+            else:
+                st.info("O QR Code aparecerá aqui após iniciar a conexão.")
+
+    if any(p.running for p in st.session_state.managed_processes.values()):
+        time.sleep(2)
         st.rerun()
 
 # ═══════════════════════════════════════════════════
@@ -1048,8 +1209,8 @@ elif "Cron" in menu:
                             # Remove linha do crontab
                             code, current = exec_in_container(nanobot, "crontab -l 2>/dev/null")
                             new_cron = "\n".join(
-                                l for l in current.split("\n")
-                                if l.strip() != job["raw"].strip() and l.strip()
+                                cron_line for cron_line in current.split("\n")
+                                if cron_line.strip() != job["raw"].strip() and cron_line.strip()
                             )
                             exec_in_container(nanobot, f"echo '{new_cron}' | crontab -")
                             st.success("Tarefa removida.")
@@ -1371,7 +1532,7 @@ elif "Ferramentas" in menu:
         if st.button("🔍 Listar ENVs configuradas (keys only)"):
             with st.spinner("Listando..."):
                 code, out = exec_in_container(nanobot, "env | cut -d= -f1 | sort")
-            keys = [l for l in out.strip().split("\n") if l]
+            keys = [env_key for env_key in out.strip().split("\n") if env_key]
             # Destaca vars relacionadas ao nanobot/AI
             AI_KEYS = {"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "BRAVE_API_KEY", "TELEGRAM_TOKEN",
                        "DISCORD_TOKEN", "NANOBOT", "LLM", "MODEL", "GROQ", "MISTRAL"}
@@ -1403,15 +1564,19 @@ elif "Telemetria" in menu:
         bar_cls = "red" if cpu > 90 else "amber" if cpu > 70 else "blue"
         st.markdown(metric_card_html("CPU Usage", f"<span class='m-accent'>{cpu:.1f}</span>%", f"{psutil.cpu_count()} cores", cpu, bar_cls), unsafe_allow_html=True)
     with c2:
-        used_gb = mem.used / 1e9; total_gb = mem.total / 1e9
+        used_gb = mem.used / 1e9
+        total_gb = mem.total / 1e9
         bar_cls = "red" if mem.percent > 90 else "amber" if mem.percent > 75 else "green"
         st.markdown(metric_card_html("RAM", f"<span class='m-accent'>{mem.percent:.1f}</span>%", f"{used_gb:.1f} / {total_gb:.1f} GB", mem.percent, bar_cls), unsafe_allow_html=True)
     with c3:
-        d_pct = disk.percent; d_used = disk.used / 1e9; d_total = disk.total / 1e9
+        d_pct = disk.percent
+        d_used = disk.used / 1e9
+        d_total = disk.total / 1e9
         bar_cls = "red" if d_pct > 90 else "amber" if d_pct > 80 else "blue"
         st.markdown(metric_card_html("Disk", f"<span class='m-accent'>{d_pct:.1f}</span>%", f"{d_used:.0f} / {d_total:.0f} GB", d_pct, bar_cls), unsafe_allow_html=True)
     with c4:
-        h, rem = divmod(uptime.seconds, 3600); m, _ = divmod(rem, 60)
+        h, rem = divmod(uptime.seconds, 3600)
+        m, _ = divmod(rem, 60)
         st.markdown(metric_card_html("Uptime", f"<span class='m-accent'>{uptime.days}d</span>", f"{h:02d}h {m:02d}m"), unsafe_allow_html=True)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1420,7 +1585,8 @@ elif "Telemetria" in menu:
 
     with col_net:
         st.markdown('<div class="sec-header">⬡ Rede</div>', unsafe_allow_html=True)
-        sent_mb = net.bytes_sent / 1e6; recv_mb = net.bytes_recv / 1e6
+        sent_mb = net.bytes_sent / 1e6
+        recv_mb = net.bytes_recv / 1e6
         st.markdown(f"""
         <div class="glass-card">
           <div style="display:flex; gap:24px; align-items:center; flex-wrap:wrap;">
@@ -1523,7 +1689,7 @@ elif "Telemetria" in menu:
             except Exception as e:
                 st.error(f"Erro: {e}")
         else:
-            st.markdown(f"""
+            st.markdown("""
             <div class="glass-card">
               <span style="font-family:'Space Mono',monospace; font-size:0.8rem; color:#ef4444; letter-spacing:.1em;">⚠ OFFLINE</span><br>
               <span style="font-size:0.72rem; color:#4a5568;">
