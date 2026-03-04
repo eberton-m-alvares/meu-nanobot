@@ -13,6 +13,11 @@ import datetime
 import subprocess
 import re
 import glob
+import threading
+from dataclasses import dataclass, field
+
+import streamlit.components.v1 as components
+from ansi2html import Ansi2HTMLConverter
 
 # ─────────────────────────────────────────────
 #  CONFIG
@@ -387,6 +392,88 @@ def save_history():
         json.dump(st.session_state.messages, f, ensure_ascii=False, indent=2)
 
 
+@dataclass
+class ManagedProcess:
+    name: str
+    container_name: str
+    running: bool = True
+    output_lines: list[str] = field(default_factory=list)
+    reader_thread: threading.Thread | None = None
+
+
+def init_subprocess_state() -> None:
+    if "managed_processes" not in st.session_state:
+        st.session_state.managed_processes = {}
+    if "ansi_converter" not in st.session_state:
+        st.session_state.ansi_converter = Ansi2HTMLConverter(inline=True)
+
+
+def _stream_output(proc_key: str, container_name: str):
+    """Lê os logs do container em tempo real."""
+    try:
+        container = docker.from_env().containers.get(container_name)
+        logs = container.logs(stream=True, follow=True, tail=100)
+
+        for line in logs:
+            managed = st.session_state.managed_processes.get(proc_key)
+            if not managed or not managed.running:
+                break
+            managed.output_lines.append(line.decode("utf-8", errors="replace"))
+            if len(managed.output_lines) > 1000:
+                managed.output_lines = managed.output_lines[-1000:]
+    except Exception as e:
+        managed = st.session_state.managed_processes.get(proc_key)
+        if managed:
+            managed.output_lines.append(f"\n[stream-error] {e}\n")
+
+
+def start_managed_process(proc_key: str, name: str, container_name: str) -> None:
+    current = st.session_state.managed_processes.get(proc_key)
+    if current and current.running:
+        st.warning(f"{name} já está em execução.")
+        return
+
+    managed = ManagedProcess(name=name, container_name=container_name, running=True)
+    st.session_state.managed_processes[proc_key] = managed
+
+    thread = threading.Thread(target=_stream_output, args=(proc_key, container_name), daemon=True)
+    managed.reader_thread = thread
+    thread.start()
+
+
+def stop_managed_processes() -> None:
+    for key, managed in list(st.session_state.managed_processes.items()):
+        managed.running = False
+        st.session_state.managed_processes.pop(key, None)
+
+    if container_online:
+        exec_in_container(nanobot, "pkill -f 'nanobot channels login' 2>/dev/null || true")
+        exec_in_container(nanobot, "pkill -f 'nanobot gateway' 2>/dev/null || true")
+
+
+def flush_managed_queues() -> None:
+    # Mantida para compatibilidade com a estrutura anterior.
+    return
+
+
+def render_managed_terminal(managed: ManagedProcess) -> None:
+    terminal_text = "".join(managed.output_lines[-500:])
+    if not terminal_text.strip():
+        st.caption("Sem saída ainda...")
+        return
+
+    terminal_html = st.session_state.ansi_converter.convert(terminal_text, full=False)
+    components.html(
+        f"""
+        <div style="background:#05070f;border:1px solid #1a2035;border-radius:8px;padding:12px;max-height:320px;overflow:auto;">
+            {terminal_html}
+        </div>
+        """,
+        height=340,
+        scrolling=True,
+    )
+
+
 # ─────────────────────────────────────────────
 #  LOGIN
 # ─────────────────────────────────────────────
@@ -472,6 +559,9 @@ if "term_output" not in st.session_state:
 if "last_exec_result" not in st.session_state:
     st.session_state.last_exec_result = None
 
+init_subprocess_state()
+flush_managed_queues()
+
 
 # ─────────────────────────────────────────────
 #  SIDEBAR
@@ -525,6 +615,34 @@ with st.sidebar:
 # ═══════════════════════════════════════════════════
 if "Terminal" in menu:
     col_chat, col_brain = st.columns([0.55, 0.45], gap="large")
+
+    st.markdown('<div class="sec-header">⚡ Processos CLI Nanobot</div>', unsafe_allow_html=True)
+    btn_col1, btn_col2, btn_col3 = st.columns(3)
+    with btn_col1:
+        if st.button("Iniciar nanobot channels login", use_container_width=True):
+            if container_online:
+                nanobot.exec_run("nanobot channels login", detach=True)
+                start_managed_process("channels_login", "Login WhatsApp", "nanobot")
+                st.success("Processo de login iniciado em background.")
+            else:
+                st.error("Container offline")
+    with btn_col2:
+        if st.button("Iniciar nanobot gateway", use_container_width=True):
+            if container_online:
+                nanobot.exec_run("nanobot gateway", detach=True)
+                start_managed_process("gateway", "Nanobot Gateway", "nanobot")
+                st.success("Gateway iniciado em background.")
+            else:
+                st.error("Container offline")
+    with btn_col3:
+        if st.button("Parar Processos", use_container_width=True):
+            stop_managed_processes()
+            st.info("Processos do nanobot encerrados.")
+
+    if st.session_state.managed_processes:
+        for key, managed in st.session_state.managed_processes.items():
+            st.markdown(f"**{managed.name}** · Container `{managed.container_name}` · {'🟢 Rodando' if managed.running else '🔴 Finalizado'}")
+            render_managed_terminal(managed)
 
     with col_chat:
         st.markdown('<div class="sec-header">⬡ Chat com o Agente</div>', unsafe_allow_html=True)
@@ -662,6 +780,9 @@ if "Terminal" in menu:
             else:
                 st.error("Container offline")
 
+    if any(p.running for p in st.session_state.managed_processes.values()):
+        time.sleep(1)
+        st.rerun()
 
 # ═══════════════════════════════════════════════════
 #  PAGE: SHELL DIRETO
