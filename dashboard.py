@@ -10,12 +10,9 @@ import json
 import psutil
 import time
 import datetime
-import subprocess
 import re
 import glob
 import queue
-import shlex
-import signal
 import threading
 from dataclasses import dataclass, field
 
@@ -399,75 +396,111 @@ def save_history():
 class ManagedProcess:
     name: str
     command: str
-    process: subprocess.Popen
+    container_name: str
+    exec_id: str | None = None
+    pid: int | None = None
+    running: bool = False
+    exit_code: int | None = None
     output_queue: queue.Queue = field(default_factory=queue.Queue)
     output_lines: list[str] = field(default_factory=list)
     reader_thread: threading.Thread | None = None
 
 
-def init_subprocess_state() -> None:
+def init_managed_state() -> None:
     if "managed_processes" not in st.session_state:
         st.session_state.managed_processes = {}
     if "ansi_converter" not in st.session_state:
         st.session_state.ansi_converter = Ansi2HTMLConverter(inline=True)
 
 
-def _read_process_output(proc_key: str) -> None:
+def _stream_exec_output(proc_key: str, stream, client: docker.DockerClient) -> None:
     managed = st.session_state.managed_processes.get(proc_key)
-    if not managed or not managed.process.stdout:
+    if not managed:
         return
+    buf = ""
     try:
-        for line in iter(managed.process.stdout.readline, ""):
-            if not line:
-                break
-            managed.output_queue.put(line)
+        managed.running = True
+        for chunk in stream:
+            if chunk is None:
+                continue
+            text = chunk.decode("utf-8", errors="replace") if isinstance(chunk, (bytes, bytearray)) else str(chunk)
+            buf += text
+            while "\n" in buf:
+                line, buf = buf.split("\n", 1)
+                if line.startswith("__NB_PID__:"):
+                    pid_raw = line.split(":", 1)[1].strip()
+                    if pid_raw.isdigit():
+                        managed.pid = int(pid_raw)
+                    continue
+                managed.output_queue.put(line + "\n")
+        if buf:
+            managed.output_queue.put(buf)
     finally:
-        if managed.process.stdout:
-            managed.process.stdout.close()
+        managed.running = False
+        if managed.exec_id:
+            try:
+                inspect = client.api.exec_inspect(managed.exec_id)
+                managed.exit_code = inspect.get("ExitCode")
+            except Exception:
+                managed.exit_code = None
 
 
-def start_managed_process(proc_key: str, name: str, command: str) -> None:
+def start_managed_process(proc_key: str, name: str, command: str, container) -> None:
+    if container is None:
+        st.error("Container nanobot indisponível.")
+        return
     current = st.session_state.managed_processes.get(proc_key)
-    if current and current.process.poll() is None:
+    if current and current.running:
         st.warning(f"{name} já está em execução.")
         return
 
-    popen_kwargs = {
-        "stdout": subprocess.PIPE,
-        "stderr": subprocess.STDOUT,
-        "stdin": subprocess.DEVNULL,
-        "text": True,
-        "bufsize": 1,
-    }
-    if os.name == "nt":
-        popen_kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
-    else:
-        popen_kwargs["preexec_fn"] = os.setsid
+    run_cmd = f"{command} & pid=$!; echo __NB_PID__:$pid; wait $pid"
+    exec_result = container.exec_run(
+        ["/bin/sh", "-lc", run_cmd],
+        stream=True,
+        demux=False,
+        workdir="/workspace",
+    )
 
-    process = subprocess.Popen(shlex.split(command), **popen_kwargs)
-    managed = ManagedProcess(name=name, command=command, process=process)
+    managed = ManagedProcess(
+        name=name,
+        command=command,
+        container_name=container.name,
+        exec_id=getattr(exec_result, "exec_id", None),
+        running=True,
+    )
     st.session_state.managed_processes[proc_key] = managed
 
-    thread = threading.Thread(target=_read_process_output, args=(proc_key,), daemon=True)
+    thread = threading.Thread(
+        target=_stream_exec_output,
+        args=(proc_key, exec_result.output, docker_client),
+        daemon=True,
+    )
     managed.reader_thread = thread
     thread.start()
 
 
-def _terminate_process(process: subprocess.Popen) -> None:
-    if process.poll() is not None:
+def _terminate_process(container, managed: ManagedProcess) -> None:
+    if not managed.running:
         return
     try:
-        if os.name == "nt":
-            process.send_signal(signal.CTRL_BREAK_EVENT)
-        else:
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+        if managed.pid:
+            container.exec_run(
+                ["/bin/sh", "-lc", f"kill -TERM {managed.pid} 2>/dev/null || true"],
+                workdir="/workspace",
+            )
     except Exception:
-        process.terminate()
+        managed.output_queue.put("Falha ao enviar sinal de término via Docker API.\n")
+    finally:
+        managed.running = False
 
 
-def stop_managed_processes() -> None:
+def stop_managed_processes(container) -> None:
+    if container is None:
+        st.session_state.managed_processes = {}
+        return
     for key, managed in list(st.session_state.managed_processes.items()):
-        _terminate_process(managed.process)
+        _terminate_process(container, managed)
         st.session_state.managed_processes.pop(key, None)
 
 
@@ -539,7 +572,7 @@ if not check_password():
 @st.cache_resource
 def get_docker():
     try:
-        client = docker.from_env()
+        client = docker.from_env(environment={"DOCKER_HOST": "unix:///var/run/docker.sock"})
         container = client.containers.get("nanobot")
         return client, container
     except Exception:
@@ -583,7 +616,7 @@ if "term_output" not in st.session_state:
 if "last_exec_result" not in st.session_state:
     st.session_state.last_exec_result = None
 
-init_subprocess_state()
+init_managed_state()
 flush_managed_queues()
 
 
@@ -644,21 +677,22 @@ if "Terminal" in menu:
     btn_col1, btn_col2, btn_col3 = st.columns(3)
     with btn_col1:
         if st.button("Iniciar nanobot channels login", use_container_width=True):
-            start_managed_process("channels_login", "docker exec -i nanobot nanobot channels login", "nanobot channels login")
+            start_managed_process("channels_login", "nanobot channels login", "nanobot channels login", nanobot)
             st.success("Processo de login iniciado em background.")
     with btn_col2:
         if st.button("Iniciar nanobot gateway", use_container_width=True):
-            start_managed_process("gateway", "nanobot gateway", "nanobot gateway")
+            start_managed_process("gateway", "nanobot gateway", "nanobot gateway", nanobot)
             st.success("Gateway iniciado em background.")
     with btn_col3:
         if st.button("Parar Processos", use_container_width=True):
-            stop_managed_processes()
+            stop_managed_processes(nanobot)
             st.info("Processos do nanobot encerrados.")
 
     if st.session_state.managed_processes:
         for key, managed in st.session_state.managed_processes.items():
-            running = managed.process.poll() is None
-            st.markdown(f"**{managed.name}** · PID `{managed.process.pid}` · {'🟢 Rodando' if running else '🔴 Finalizado'}")
+            status = "🟢 Rodando" if managed.running else "🔴 Finalizado"
+            pid_label = managed.pid if managed.pid is not None else "n/a"
+            st.markdown(f"**{managed.name}** · PID `{pid_label}` · {status}")
             render_managed_terminal(managed)
 
     with col_chat:
@@ -797,7 +831,7 @@ if "Terminal" in menu:
             else:
                 st.error("Container offline")
 
-    if any(p.process.poll() is None for p in st.session_state.managed_processes.values()):
+    if any(p.running for p in st.session_state.managed_processes.values()):
         time.sleep(1)
         st.rerun()
 
