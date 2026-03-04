@@ -644,7 +644,7 @@ if "Terminal" in menu:
     btn_col1, btn_col2, btn_col3 = st.columns(3)
     with btn_col1:
         if st.button("Iniciar nanobot channels login", use_container_width=True):
-            start_managed_process("channels_login", "nanobot channels login", "nanobot channels login")
+            start_managed_process("channels_login", "docker exec -i nanobot nanobot channels login", "nanobot channels login")
             st.success("Processo de login iniciado em background.")
     with btn_col2:
         if st.button("Iniciar nanobot gateway", use_container_width=True):
