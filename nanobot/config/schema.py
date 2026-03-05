@@ -16,7 +16,7 @@ class WhatsAppConfig(Base):
     """WhatsApp channel configuration."""
 
     enabled: bool = False
-    bridge_url: str = "ws://localhost:3001"
+    bridge_url: str = "ws://127.0.0.1:3001"
     bridge_token: str = ""  # Shared token for bridge auth (optional, recommended)
     allow_from: list[str] = Field(default_factory=list)  # Allowed phone numbers
 

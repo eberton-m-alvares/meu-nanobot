@@ -60,7 +60,7 @@ class WhatsAppChannel(BaseChannel):
             except Exception as e:
                 self._connected = False
                 self._ws = None
-                logger.warning(f"WhatsApp bridge connection error: {e}")
+                logger.warning(f"WhatsApp bridge connection error: {e}. Ensure the bridge is running (nanobot channels login) and reachable at {bridge_url}")
                 
                 if self._running:
                     logger.info("Reconnecting in 5 seconds...")
