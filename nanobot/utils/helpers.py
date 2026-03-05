@@ -1,7 +1,10 @@
 """Utility functions for nanobot."""
 
+import shutil
+import subprocess
 from pathlib import Path
 from datetime import datetime
+from loguru import logger
 
 
 def ensure_dir(path: Path) -> Path:
@@ -78,3 +81,57 @@ def parse_session_key(key: str) -> tuple[str, str]:
     if len(parts) != 2:
         raise ValueError(f"Invalid session key: {key}")
     return parts[0], parts[1]
+
+
+def get_bridge_dir() -> Path:
+    """Get the bridge directory, setting it up if needed."""
+    # User's bridge location
+    user_bridge = Path.home() / ".nanobot" / "bridge"
+
+    # Check if already built in user dir
+    if (user_bridge / "dist" / "index.js").exists():
+        return user_bridge
+
+    # Find source bridge: first check package data, then source dir
+    pkg_bridge = Path(__file__).parent.parent / "bridge"  # nanobot/bridge (installed)
+    src_bridge = Path(__file__).parent.parent.parent / "bridge"  # repo root/bridge (dev)
+
+    source = None
+    if (pkg_bridge / "package.json").exists():
+        source = pkg_bridge
+    elif (src_bridge / "package.json").exists():
+        source = src_bridge
+
+    if not source:
+        raise RuntimeError("WhatsApp bridge source not found. Try reinstalling: pip install --force-reinstall nanobot")
+
+    # If source is already built (e.g. in Docker), just use it
+    if (source / "dist" / "index.js").exists():
+        return source
+
+    # Check for npm
+    if not shutil.which("npm"):
+        raise RuntimeError("npm not found. Please install Node.js >= 18.")
+
+    logger.info("Setting up WhatsApp bridge...")
+
+    # Copy to user directory
+    user_bridge.parent.mkdir(parents=True, exist_ok=True)
+    if user_bridge.exists():
+        shutil.rmtree(user_bridge)
+    shutil.copytree(source, user_bridge, ignore=shutil.ignore_patterns("node_modules", "dist"))
+
+    # Install and build
+    try:
+        logger.info("  Installing bridge dependencies...")
+        subprocess.run(["npm", "install"], cwd=user_bridge, check=True, capture_output=True)
+
+        logger.info("  Building bridge...")
+        subprocess.run(["npm", "run", "build"], cwd=user_bridge, check=True, capture_output=True)
+
+        logger.info("WhatsApp bridge ready")
+    except subprocess.CalledProcessError as e:
+        stderr = e.stderr.decode() if e.stderr else str(e)
+        raise RuntimeError(f"WhatsApp bridge build failed: {stderr[:500]}")
+
+    return user_bridge

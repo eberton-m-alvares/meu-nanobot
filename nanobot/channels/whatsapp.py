@@ -31,9 +31,32 @@ class WhatsAppChannel(BaseChannel):
     async def start(self) -> None:
         """Start the WhatsApp channel by connecting to the bridge."""
         import websockets
-        
+        import subprocess
+        import os
+        from nanobot.utils.helpers import get_bridge_dir
+
         bridge_url = self.config.bridge_url
         
+        # In Docker, we try to start the bridge automatically if it's on localhost
+        if "127.0.0.1" in bridge_url or "localhost" in bridge_url:
+            try:
+                bridge_dir = get_bridge_dir()
+                env = {**os.environ}
+                if self.config.bridge_token:
+                    env["BRIDGE_TOKEN"] = self.config.bridge_token
+
+                logger.info("Starting WhatsApp bridge automatically...")
+                # Run bridge in background
+                subprocess.Popen(
+                    ["npm", "start"],
+                    cwd=bridge_dir,
+                    env=env,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL
+                )
+            except Exception as e:
+                logger.warning(f"Could not start WhatsApp bridge automatically: {e}")
+
         logger.info(f"Connecting to WhatsApp bridge at {bridge_url}...")
         
         self._running = True
