@@ -165,7 +165,15 @@ class WhatsAppChannel(BaseChannel):
         
         elif msg_type == "qr":
             # QR code for authentication
-            logger.info("Scan QR code in the bridge terminal to connect WhatsApp")
+            qr = data.get("qr")
+            if qr:
+                logger.info("WhatsApp QR Code received. If you are using the dashboard, check the WhatsApp tab.")
+                # We log it so it can be picked up by the dashboard
+                # The bridge already prints it to terminal, but we want it in Python logs too
+                # for easier capture by Streamlit
+                print(f"\n--- WHATSAPP QR CODE START ---\n{qr}\n--- WHATSAPP QR CODE END ---\n")
+            else:
+                logger.info("Scan QR code in the bridge terminal to connect WhatsApp")
         
         elif msg_type == "error":
             logger.error(f"WhatsApp bridge error: {data.get('error')}")

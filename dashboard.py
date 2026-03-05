@@ -495,6 +495,7 @@ with st.sidebar:
         [
             "⬡  Terminal",
             "⌘  Shell Direto",
+            "📱 WhatsApp",
             "◈  Identidade",
             "⏱  Cron / Agenda",
             "🗂  Memória & Workspace",
@@ -1123,6 +1124,13 @@ elif "Ferramentas" in menu:
             "check_cmd": "ls /workspace/*.md 2>/dev/null | wc -l",
             "test_cmd": "nanobot memory list 2>&1 | head -20",
         },
+        "whatsapp": {
+            "label": "WhatsApp",
+            "icon": "📱",
+            "desc": "Gateway WhatsApp (Baileys Bridge)",
+            "check_cmd": "nanobot channels status | grep WhatsApp",
+            "test_cmd": "nanobot channels status",
+        },
         "mcp": {
             "label": "MCP Protocol",
             "icon": "🔗",
@@ -1374,3 +1382,92 @@ elif "Telemetria" in menu:
     if st.toggle("⟳ Auto-refresh (10s)", value=False):
         time.sleep(10)
         st.rerun()
+
+
+# ═══════════════════════════════════════════════════
+#  PAGE: WHATSAPP
+# ═══════════════════════════════════════════════════
+elif "WhatsApp" in menu:
+    st.markdown('<div class="sec-header">📱 Gestão de Integração WhatsApp</div>', unsafe_allow_html=True)
+
+    if not container_online:
+        st.error("⚠ Container offline")
+    else:
+        col_status, col_qr = st.columns([1, 1], gap="large")
+
+        with col_status:
+            st.markdown('<div class="sec-header">⬡ Status da Conexão</div>', unsafe_allow_html=True)
+
+            code, out = exec_in_container(nanobot, "nanobot channels status | grep WhatsApp")
+            is_enabled = "✓" in out
+
+            st.markdown(
+                f'<div class="glass-card">'
+                f'<div style="font-family:Space Mono,monospace; font-size:0.8rem; margin-bottom:12px;">'
+                f'Canal: <span style="color:#60a5fa;">WhatsApp</span><br>'
+                f'Status: <span style="color:{"#22c55e" if is_enabled else "#ef4444"};">{"HABILITADO" if is_enabled else "DESABILITADO"}</span>'
+                f'</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+            st.markdown("<br>", unsafe_allow_html=True)
+
+            if not is_enabled:
+                st.warning("O canal WhatsApp não está habilitado no `config.json`.")
+                if st.button("🛠 Habilitar Agora"):
+                    # Tenta habilitar via sed no config.json
+                    exec_in_container(nanobot, "sed -i 's/\"whatsapp\": { \"enabled\": false/\"whatsapp\": { \"enabled\": true/g' ~/.nanobot/config.json")
+                    st.success("✓ Tentativa de habilitação enviada. Reinicie o container.")
+                    st.rerun()
+
+            if st.button("🔗 Iniciar Pareamento (QR Code)", use_container_width=True):
+                # O comando 'login' mostra o QR code no terminal (logs)
+                # Como o start_all já tenta conectar, o QR code deve aparecer nos logs do container
+                # se não estiver autenticado.
+                st.session_state["show_qr"] = True
+                st.rerun()
+
+        with col_qr:
+            st.markdown('<div class="sec-header">⬡ QR Code para Conexão</div>', unsafe_allow_html=True)
+
+            if st.session_state.get("show_qr"):
+                try:
+                    # Busca QR Code nos logs do container
+                    logs = nanobot.logs(tail=300).decode("utf-8", errors="replace")
+
+                    # Heurística para blocos Unicode (qrcode-terminal)
+                    qr_lines = []
+                    all_log_lines = logs.split('\n')
+                    for line in all_log_lines:
+                        # Procura por linhas que contenham predominantemente caracteres de bloco QR
+                        if len(re.findall(r'[\u2580-\u259F]', line)) > 10:
+                            qr_lines.append(line)
+
+                    if qr_lines:
+                        st.markdown(
+                            f'<div class="term-box" style="line-height:1; font-size:10px; background:white; color:black; padding:20px; text-align:center;">'
+                            f'{"<br>".join(qr_lines[-40:])}'
+                            f'</div>',
+                            unsafe_allow_html=True,
+                        )
+                        st.caption("Aponte o WhatsApp do seu celular para o QR Code acima (Aparelhos Conectados)")
+                    else:
+                        st.info("Aguardando QR Code... Certifique-se que o gateway está rodando e tentando conectar ao WhatsApp.")
+                        if st.button("🔄 Atualizar Logs"):
+                            st.rerun()
+
+                    with st.expander("Ver Logs Brutos do WhatsApp"):
+                        wa_logs = render_log(logs, filter_kw="whatsapp")
+                        st.markdown(f'<div class="log-box">{wa_logs}</div>', unsafe_allow_html=True)
+
+                except Exception as e:
+                    st.error(f"Erro ao capturar QR Code: {e}")
+
+            else:
+                st.markdown(
+                    '<div class="glass-card" style="text-align:center; padding:40px; color:#2a3650;">'
+                    'Clique em "Iniciar Pareamento" para visualizar o QR Code.'
+                    '</div>',
+                    unsafe_allow_html=True,
+                )
