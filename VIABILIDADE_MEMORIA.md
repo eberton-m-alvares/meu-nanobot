@@ -55,6 +55,11 @@ A forma mais simples, rápida e nativa do Python de resolver isso é abandonar o
 Se os históricos ficarem gigantescos, você não vai querer ler textos brutos. Um banco de dados vetorial como ChromaDB (que também roda local e não precisa de servidor externo) permite armazenar as memórias.
 * **Como funciona:** Em vez de dar ao bot todo o `HISTORY.md` do usuário, o bot recebe *apenas* os pedaços de memória que são relevantes para a pergunta atual do usuário (isso se chama RAG - Retrieval-Augmented Generation).
 
+#### Eles devem ser implementados juntos?
+**Não necessariamente.** A melhor abordagem é iterativa:
+- **Passo 1 (Apenas Nível 1 - SQLite):** Implemente primeiro apenas o SQLite. Use-o para gerenciar as identidades (unificar Telegram/WhatsApp) e salvar o `MEMORY.md` global e o `user_MEMORY.md` de cada usuário. Como as memórias de longo prazo (fatos importantes) devem ser enxutas (ex: bullet points curtos), o SQLite é perfeito para puxar esse texto e jogar no prompt inteiro.
+- **Passo 2 (Nível 1 + Nível 2):** Se no futuro você quiser que o bot lembre de conversas passadas complexas (o `HISTORY.md` que ficou muito grande para o SQLite/Prompt), aí sim você adiciona o banco vetorial **ao lado** do SQLite. O SQLite continua gerenciando quem é o usuário e suas permissões/identidades, e o Banco Vetorial passa a ser o motor de busca para resgatar os trechos antigos do histórico de chat daquele usuário.
+
 ---
 
 ## 5. Consumo de Tokens (O grande gargalo financeiro)
