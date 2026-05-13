@@ -22,40 +22,63 @@ Esta arquitetura funciona bem para um uso onde o bot atende uma única pessoa (o
   - `workspace/memory/users/<user_id>/MEMORY.md`
   - `workspace/memory/users/<user_id>/HISTORY.md`
 - No `ContextBuilder` (`nanobot/agent/context.py`), durante a montagem do prompt (`build_system_prompt`), o sistema injetaria tanto a memória global quanto a memória lida do diretório específico daquele usuário.
-- Durante a *consolidação de memória* (`_consolidate_memory` em `nanobot/agent/loop.py`), o prompt do LLM precisaria ser ajustado para que o modelo pudesse atualizar arquivos diferentes (ex: retornar JSON com atualizações para fatos globais X fatos do usuário).
 
 ## 3. Unificação de Identidade (Múltiplos Canais)
 **Viabilidade: Média/Alta (Exige lógica de vinculação)**
 
-Atualmente, o sistema diferencia sessões usando o formato `canal:id_do_chat` (ex: `telegram:12345` e `whatsapp:551199999999`). Para o bot, são duas pessoas diferentes.
-
-Para unificar essas identidades e fazer o bot reconhecer que o usuário do Telegram é a mesma pessoa no WhatsApp, precisamos criar um "Sistema de Vinculação de Identidades" (Identity Linking).
-
-### Opção A: Vinculação Ativa (Comando)
-O usuário pode associar suas contas através de um token ou comando.
-- **Fluxo:** O usuário fala com o bot no Telegram e pede para unificar contas (ex: `/link`). O bot gera um token temporário (ex: `ABC-123`). O usuário vai no WhatsApp, envia o comando `/link ABC-123`, e o bot funde os perfis.
-- **Implementação:** Precisaríamos de um pequeno banco de dados ou arquivo JSON (`users.json`) mapeando um UUID interno (`user_123`) para múltiplos endpoints (`["telegram:12345", "whatsapp:551199999999"]`).
-
-### Opção B: Vinculação Passiva (Por número de telefone)
-- O WhatsApp e o Telegram possuem números de telefone (embora o do Telegram nem sempre seja público na API, dependendo das configurações de privacidade do usuário). Se for possível extrair o número de ambos, eles poderiam ser vinculados automaticamente.
-- **Problema:** Nem sempre temos o número de telefone em todos os canais (ex: Discord, Slack).
+Atualmente, o sistema diferencia sessões usando o formato `canal:id_do_chat` (ex: `telegram:12345` e `whatsapp:551199999999`). Para o bot, são duas pessoas diferentes. Para unificar identidades e rotear as sessões do Telegram e WhatsApp para o mesmo "cérebro", precisamos de um **Gerenciador de Identidades**.
 
 ### Solução Recomendada: Tabela de Roteamento de Identidade
-Recomendo criar um "Gerenciador de Identidades" que faz o roteamento transparente.
-- Quando uma mensagem chega do `telegram:12345`, o `IdentityManager` verifica em um arquivo `identities.json`.
+Criar um roteador transparente:
+- Quando uma mensagem chega do `telegram:12345`, o `IdentityManager` verifica um arquivo de mapeamento.
 - Se não existir, ele cria um UUID (ex: `usr_abc123`) e atrela o `telegram:12345` a esse UUID.
-- Todas as operações de *Memory* utilizarão o `usr_abc123`.
-- Se o usuário futuramente fizer o processo de *link* com o WhatsApp, o `whatsapp:9876` passará a apontar para o mesmo `usr_abc123`, carregando instantaneamente todas as memórias.
+- Se o usuário vincular sua conta do WhatsApp (através de um comando como `/link_conta`), o `whatsapp:9876` passará a apontar para o mesmo `usr_abc123`, carregando instantaneamente todas as memórias do Telegram.
 
-## 4. Impacto e Riscos
-- **Consumo de Tokens:** Injetar a memória global + memória do usuário consumirá mais contexto na janela do LLM. É importante que a consolidação seja agressiva para manter o `MEMORY.md` de cada usuário enxuto.
-- **Escalabilidade:** Se o bot tiver milhares de usuários, criar milhares de pastas e arquivos no disco (`workspace/memory/users/`) é factível, mas pode exigir a migração futura para um banco de dados (como SQLite) no lugar de arquivos de texto puro. No entanto, para escala de dezenas/centenas de usuários, o disco (`.md`) lidará sem problemas.
-- **Prompt de Consolidação:** Atualmente, a consolidação é simples. Com duas memórias (Global e Usuário), o LLM que faz a consolidação precisará ser mais inteligente para decidir se uma nova informação ("A capital da França é Paris") deve ir para a Global ou se ("Meu nome é João e tenho 3 cachorros") deve ir para a do Usuário.
+---
 
-## Conclusão
-A implementação é totalmente viável na arquitetura atual do Nanobot.
-Os passos necessários seriam:
-1. Criar um mapeamento (JSON simples) de `canal:id` -> `UUID_Usuario`.
-2. Refatorar `MemoryStore` para aceitar `UUID_Usuario` e gerenciar as pastas de usuários.
-3. Atualizar `ContextBuilder` para ler os dois níveis de memória.
-4. Ajustar `AgentLoop._consolidate_memory` para processar e salvar a memória do usuário de forma inteligente.
+## 4. Escalabilidade: Lidando com Milhares de Usuários de Forma Simples e Efetiva
+
+Lidar com **milhares de usuários** muda a perspectiva de armazenamento. Embora os sistemas operacionais modernos consigam lidar com milhares de arquivos `.md` em uma pasta (`workspace/memory/users/`), isso se tornará lento para gerenciar e fazer backups.
+
+### Soluções Simples e Efetivas para Escala:
+
+#### Nível 1 (Custo zero, fácil implementação): SQLite
+A forma mais simples, rápida e nativa do Python de resolver isso é abandonar os arquivos `.md` por usuário e usar um único arquivo de banco de dados **SQLite** (`memory.db`).
+* **Vantagem:** Não requer instalar servidores (MySQL, Postgres). É apenas um arquivo que aguenta gigabytes de dados de forma extremamente rápida.
+* **Tabelas simples:**
+  * Tabela `Users` (id, uuid)
+  * Tabela `Identities` (user_id, channel, chat_id) -> *Resolve a unificação de canais.*
+  * Tabela `Memories` (user_id, content_long_term, history_log)
+* O `MemoryStore` passaria a fazer um `SELECT` rápido ao invés de abrir arquivos `.md`. A memória global pode continuar sendo um `.md` para fácil edição manual.
+
+#### Nível 2 (Foco em IA): Banco de Dados Vetorial Local (ChromaDB / LanceDB)
+Se os históricos ficarem gigantescos, você não vai querer ler textos brutos. Um banco de dados vetorial como ChromaDB (que também roda local e não precisa de servidor externo) permite armazenar as memórias.
+* **Como funciona:** Em vez de dar ao bot todo o `HISTORY.md` do usuário, o bot recebe *apenas* os pedaços de memória que são relevantes para a pergunta atual do usuário (isso se chama RAG - Retrieval-Augmented Generation).
+
+---
+
+## 5. Consumo de Tokens (O grande gargalo financeiro)
+
+Sempre que o usuário envia um "Oi", o bot envia o "Oi" + todo o Histórico recente + a Memória Global + a Memória do Usuário para o LLM (OpenAI, Anthropic, etc). As APIs cobram por **quantidade de texto enviado** (Tokens).
+
+### O Problema
+Se você injetar a Memória Global (`MEMORY.md` = 500 tokens) + a Memória do Usuário (`user_MEMORY.md` = 1000 tokens) em **todas** as mensagens, e você tiver milhares de usuários enviando milhares de mensagens por dia, **o custo da API vai disparar**.
+
+### Como mitigar o Consumo de Tokens de forma efetiva:
+
+1. **Agressividade na Consolidação (Foco em Fatos, não Histórias):**
+   * A Memória de Longo Prazo do usuário (`user_MEMORY.md`) deve ser um "Bullet Point" de fatos estritos.
+   * *Ruim (muitos tokens):* "O usuário me contou ontem que estava indo para a padaria comprar pão francês porque ele prefere o pão francês ao pão de forma, e depois foi trabalhar no seu projeto Python."
+   * *Bom (poucos tokens):* "- Gosta de pão francês.\n- Programa em Python."
+   * O prompt que faz a "consolidação de memória" em background deve ser instruído a ser **extremamente sucinto** ao atualizar a memória de longo prazo do usuário.
+
+2. **Limite Rígido de Tamanho de Memória:**
+   * O `ContextBuilder` deve cortar a memória injetada se ela passar de um certo tamanho (ex: limitar a `user_MEMORY` a no máximo 800 tokens). O que for mais antigo ou menos importante deve ser sobreposto pelo agente consolidador.
+
+3. **Injeção de Memória Dinâmica (O futuro do seu projeto):**
+   * Para escalar economicamente com milhares de usuários, a melhor solução é não enviar a memória de longo prazo toda vez.
+   * Quando o usuário manda uma mensagem, um sistema rápido (como Embeddings/Vector DB) busca na memória se há algo relevante.
+   * Exemplo: Se o usuário diz "Qual o clima?", não precisamos injetar a memória de que ele "Tem um cachorro chamado Rex". O bot injeta a memória apenas quando a pergunta for relacionada.
+
+### Conclusão e Próximo Passo
+A transição para **SQLite** é o caminho mais óbvio, simples e profissional para você lidar com os múltiplos canais, as identidades cruzadas e armazenar a memória individual de milhares de usuários. Para gerenciar os tokens, o segredo será criar uma consolidação de memória que gere resumos muito curtos e diretos.
